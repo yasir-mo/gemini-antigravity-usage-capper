@@ -1,4 +1,4 @@
-﻿// GeminiCapper - Google Antigravity & Gemini usage tracker and capper
+// GeminiCapper - Google Antigravity & Gemini usage tracker and capper
 // Copyright 2026 Yasir Mo (https://github.com/yasir-mo). Apache License 2.0.
 
 using System;
@@ -8,12 +8,58 @@ using System.Drawing;
 using System.Globalization;
 using System.IO;
 using System.Net;
+using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading;
 using System.Windows.Forms;
 using System.Web.Script.Serialization;
 
 public class GeminiCapperForm : Form
 {
+    // Windows Credential Manager Interop
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public struct CREDENTIAL
+    {
+        public int Flags;
+        public int Type;
+        public string TargetName;
+        public string Comment;
+        public System.Runtime.InteropServices.ComTypes.FILETIME LastWritten;
+        public int CredentialBlobSize;
+        public IntPtr CredentialBlob;
+        public int Persist;
+        public int AttributeCount;
+        public IntPtr Attributes;
+        public string TargetAlias;
+        public string UserName;
+    }
+
+    [DllImport("Advapi32.dll", EntryPoint = "CredReadW", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern bool CredRead(string target, int type, int reservedFlag, out IntPtr credentialPtr);
+
+    [DllImport("Advapi32.dll", EntryPoint = "CredFree", SetLastError = true)]
+    public static extern void CredFree(IntPtr cred);
+
+    public static string ReadCredential(string target)
+    {
+        IntPtr credPtr;
+        if (CredRead(target, 1, 0, out credPtr))
+        {
+            try
+            {
+                CREDENTIAL cred = (CREDENTIAL)Marshal.PtrToStructure(credPtr, typeof(CREDENTIAL));
+                byte[] b = new byte[cred.CredentialBlobSize];
+                Marshal.Copy(cred.CredentialBlob, b, 0, cred.CredentialBlobSize);
+                return Encoding.UTF8.GetString(b);
+            }
+            finally
+            {
+                CredFree(credPtr);
+            }
+        }
+        return null;
+    }
+
     string toolDir;
     string configFile;
     long pausedUntilEpoch = 0;
@@ -29,9 +75,9 @@ public class GeminiCapperForm : Form
     NumericUpDown numThreshold;
     NumericUpDown numPointsPerDay;
     CheckBox chkPacing;
-    Label[] rowName = new Label[4];
-    ProgressBar[] rowBar = new ProgressBar[4];
-    Label[] rowPct = new Label[4];
+    Label[] rowName = new Label[5];
+    ProgressBar[] rowBar = new ProgressBar[5];
+    Label[] rowPct = new Label[5];
     System.Windows.Forms.Timer timer;
     NotifyIcon notifyIcon;
     ContextMenuStrip trayMenu;
@@ -82,7 +128,7 @@ public class GeminiCapperForm : Form
         ShowInTaskbar = true;
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
-        ClientSize = new Size(460, 480);
+        ClientSize = new Size(480, 520);
         Font = new Font("Segoe UI", 9f);
 
         IntPtr forceHandle = this.Handle;
@@ -115,66 +161,66 @@ public class GeminiCapperForm : Form
         // ---- protection / pause ----
         GroupBox grpStatus = new GroupBox();
         grpStatus.Text = "Antigravity & Gemini Protection";
-        grpStatus.SetBounds(12, 8, 436, 110);
+        grpStatus.SetBounds(12, 8, 456, 110);
         Controls.Add(grpStatus);
 
         lblStatus = new Label();
-        lblStatus.SetBounds(12, 22, 410, 20);
+        lblStatus.SetBounds(12, 22, 430, 20);
         lblStatus.Font = new Font("Segoe UI", 9f, FontStyle.Bold);
         grpStatus.Controls.Add(lblStatus);
 
         Button btnPause30 = MakeButton(grpStatus, "Pause 30 min", 12, 50, 95);
-        Button btnPause2h = MakeButton(grpStatus, "Pause 2 h", 113, 50, 95);
-        Button btnPauseManual = MakeButton(grpStatus, "Pause until resumed", 214, 50, 130);
-        Button btnResume = MakeButton(grpStatus, "Resume", 350, 50, 72);
+        Button btnPause2h = MakeButton(grpStatus, "Pause 2 h", 115, 50, 95);
+        Button btnPauseManual = MakeButton(grpStatus, "Pause until resumed", 218, 50, 136);
+        Button btnResume = MakeButton(grpStatus, "Resume", 362, 50, 80);
 
         Label lblPauseNote = new Label();
-        lblPauseNote.SetBounds(12, 84, 410, 18);
+        lblPauseNote.SetBounds(12, 84, 430, 18);
         lblPauseNote.Text = "While paused, rate limit and quota blocks are temporarily suspended.";
         lblPauseNote.ForeColor = Color.DimGray;
         grpStatus.Controls.Add(lblPauseNote);
 
         // ---- usage ----
         GroupBox grpUsage = new GroupBox();
-        grpUsage.Text = "Quota & Rate Limits Now";
-        grpUsage.SetBounds(12, 126, 436, 170);
+        grpUsage.Text = "Live Model Quotas & Usage (/usage)";
+        grpUsage.SetBounds(12, 126, 456, 205);
         Controls.Add(grpUsage);
 
-        for (int i = 0; i < 4; i++)
+        for (int i = 0; i < 5; i++)
         {
-            int y = 22 + i * 34;
+            int y = 22 + i * 32;
             rowName[i] = new Label();
-            rowName[i].SetBounds(12, y, 245, 16);
+            rowName[i].SetBounds(12, y, 220, 16);
             rowName[i].Visible = false;
             grpUsage.Controls.Add(rowName[i]);
             rowBar[i] = new ProgressBar();
-            rowBar[i].SetBounds(260, y, 120, 16);
+            rowBar[i].SetBounds(236, y, 110, 16);
             rowBar[i].Minimum = 0;
             rowBar[i].Maximum = 100;
             rowBar[i].Visible = false;
             grpUsage.Controls.Add(rowBar[i]);
             rowPct[i] = new Label();
-            rowPct[i].SetBounds(386, y, 44, 16);
+            rowPct[i].SetBounds(350, y, 100, 16);
             rowPct[i].Visible = false;
             grpUsage.Controls.Add(rowPct[i]);
         }
 
-        Button btnRefresh = MakeButton(grpUsage, "Refresh", 348, 136, 74);
+        Button btnRefresh = MakeButton(grpUsage, "Refresh", 368, 175, 74);
         btnRefresh.Height = 24;
 
         lblFetched = new Label();
-        lblFetched.SetBounds(12, 141, 330, 16);
+        lblFetched.SetBounds(12, 179, 350, 16);
         lblFetched.ForeColor = Color.DimGray;
         grpUsage.Controls.Add(lblFetched);
 
         // ---- settings ----
         GroupBox grpSettings = new GroupBox();
         grpSettings.Text = "Settings (saved immediately)";
-        grpSettings.SetBounds(12, 304, 436, 138);
+        grpSettings.SetBounds(12, 338, 456, 138);
         Controls.Add(grpSettings);
 
         Label lblThreshold = new Label();
-        lblThreshold.Text = "Block when quota/limit reaches (%):";
+        lblThreshold.Text = "Block when quota used reaches (%):";
         lblThreshold.SetBounds(12, 26, 220, 18);
         grpSettings.Controls.Add(lblThreshold);
 
@@ -186,7 +232,7 @@ public class GeminiCapperForm : Form
 
         chkPacing = new CheckBox();
         chkPacing.Text = "Pace daily/weekly quotas to prevent mid-cycle exhaustion";
-        chkPacing.SetBounds(12, 56, 360, 20);
+        chkPacing.SetBounds(12, 56, 380, 20);
         grpSettings.Controls.Add(chkPacing);
 
         lblPoints = new Label();
@@ -203,12 +249,12 @@ public class GeminiCapperForm : Form
         grpSettings.Controls.Add(numPointsPerDay);
 
         lblAllowedToday = new Label();
-        lblAllowedToday.SetBounds(30, 110, 390, 18);
+        lblAllowedToday.SetBounds(30, 110, 410, 18);
         lblAllowedToday.ForeColor = Color.DimGray;
         grpSettings.Controls.Add(lblAllowedToday);
 
         Label lblFooter = new Label();
-        lblFooter.SetBounds(12, 452, 436, 18);
+        lblFooter.SetBounds(12, 486, 456, 18);
         lblFooter.Text = "Minimizing or closing hides to tray. Right-click tray icon to Exit.";
         lblFooter.ForeColor = Color.DimGray;
         Controls.Add(lblFooter);
@@ -231,7 +277,7 @@ public class GeminiCapperForm : Form
         };
 
         timer = new System.Windows.Forms.Timer();
-        timer.Interval = 60000;
+        timer.Interval = 30000;
         timer.Tick += delegate { RefreshUsage(); UpdateStatusLabel(); };
         timer.Start();
 
@@ -364,52 +410,124 @@ public class GeminiCapperForm : Form
 
     ArrayList FetchUsage()
     {
-        // Check local Antigravity metrics or Google AI quota cache
-        string cachePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".gemini\\usage_cache.json");
         ArrayList result = new ArrayList();
+        string credJson = ReadCredential("gemini:antigravity");
+        if (string.IsNullOrEmpty(credJson)) return result;
 
-        if (File.Exists(cachePath))
+        try
         {
-            try
+            var serializer = new JavaScriptSerializer();
+            var authData = serializer.Deserialize<Dictionary<string, object>>(credJson);
+            if (!authData.ContainsKey("token")) return result;
+            var tokenObj = (Dictionary<string, object>)authData["token"];
+            if (!tokenObj.ContainsKey("access_token")) return result;
+            string token = tokenObj["access_token"].ToString();
+
+            HttpWebRequest req = (HttpWebRequest)WebRequest.Create("https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels");
+            req.Method = "POST";
+            req.ContentType = "application/json";
+            req.Headers["Authorization"] = "Bearer " + token;
+            req.UserAgent = "antigravity/1.0";
+            req.Timeout = 8000;
+
+            using (var streamWriter = new StreamWriter(req.GetRequestStream()))
             {
-                var data = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(File.ReadAllText(cachePath));
-                if (data.ContainsKey("limits") && data["limits"] is IEnumerable)
+                streamWriter.Write("{}");
+                streamWriter.Flush();
+            }
+
+            using (HttpWebResponse resp = (HttpWebResponse)req.GetResponse())
+            using (var reader = new StreamReader(resp.GetResponseStream()))
+            {
+                string json = reader.ReadToEnd();
+                var catalog = serializer.Deserialize<Dictionary<string, object>>(json);
+                if (catalog.ContainsKey("models") && catalog["models"] is Dictionary<string, object>)
                 {
-                    foreach (object item in (IEnumerable)data["limits"]) result.Add(item);
-                    return result;
+                    var modelsMap = (Dictionary<string, object>)catalog["models"];
+                    var orderedIds = new List<string>();
+
+                    if (catalog.ContainsKey("agentModelSorts") && catalog["agentModelSorts"] is ArrayList)
+                    {
+                        var sorts = (ArrayList)catalog["agentModelSorts"];
+                        if (sorts.Count > 0 && sorts[0] is Dictionary<string, object>)
+                        {
+                            var sortObj = (Dictionary<string, object>)sorts[0];
+                            if (sortObj.ContainsKey("groups") && sortObj["groups"] is ArrayList)
+                            {
+                                var groups = (ArrayList)sortObj["groups"];
+                                if (groups.Count > 0 && groups[0] is Dictionary<string, object>)
+                                {
+                                    var grp = (Dictionary<string, object>)groups[0];
+                                    if (grp.ContainsKey("modelIds") && grp["modelIds"] is ArrayList)
+                                    {
+                                        foreach (object id in (ArrayList)grp["modelIds"])
+                                        {
+                                            orderedIds.Add(id.ToString());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (orderedIds.Count == 0)
+                    {
+                        foreach (string k in modelsMap.Keys) orderedIds.Add(k);
+                    }
+
+                    foreach (string id in orderedIds)
+                    {
+                        if (!modelsMap.ContainsKey(id)) continue;
+                        var m = (Dictionary<string, object>)modelsMap[id];
+                        string name = m.ContainsKey("displayName") ? m["displayName"].ToString() : id;
+                        double remainingPct = 100.0;
+                        string resetIn = "100% rem";
+
+                        if (m.ContainsKey("quotaInfo") && m["quotaInfo"] is Dictionary<string, object>)
+                        {
+                            var qi = (Dictionary<string, object>)m["quotaInfo"];
+                            if (qi.ContainsKey("remainingFraction"))
+                            {
+                                remainingPct = Convert.ToDouble(qi["remainingFraction"], CultureInfo.InvariantCulture) * 100.0;
+                            }
+                            if (qi.ContainsKey("resetTime"))
+                            {
+                                DateTime resetDt;
+                                if (DateTime.TryParse(qi["resetTime"].ToString(), out resetDt))
+                                {
+                                    TimeSpan diff = resetDt.ToUniversalTime() - DateTime.UtcNow;
+                                    if (diff.TotalSeconds > 0)
+                                    {
+                                        if (diff.TotalHours >= 1)
+                                            resetIn = string.Format("{0}h {1}m", (int)diff.TotalHours, diff.Minutes);
+                                        else
+                                            resetIn = string.Format("{0}m", diff.Minutes);
+                                    }
+                                }
+                            }
+                        }
+
+                        double usedPct = Math.Round(Math.Max(0, Math.Min(100, 100.0 - remainingPct)), 1);
+
+                        var entry = new Dictionary<string, object>();
+                        entry["id"] = id;
+                        entry["name"] = name;
+                        entry["percent"] = usedPct;
+                        entry["remainingPercent"] = Math.Round(remainingPct, 1);
+                        entry["resetIn"] = resetIn;
+                        result.Add(entry);
+                    }
                 }
             }
-            catch { }
         }
-
-        // Default mock / active limits for Gemini 1.5 Pro, Flash, Antigravity rate limits
-        var l1 = new Dictionary<string, object>();
-        l1["kind"] = "gemini_pro";
-        l1["name"] = "Gemini 1.5 / 2.0 Pro (RPM/TPM)";
-        l1["percent"] = 28.0;
-        l1["resets_at"] = DateTime.UtcNow.AddHours(1).ToString("o");
-        result.Add(l1);
-
-        var l2 = new Dictionary<string, object>();
-        l2["kind"] = "gemini_flash";
-        l2["name"] = "Gemini 1.5 / 2.0 Flash (RPM/TPM)";
-        l2["percent"] = 12.0;
-        l2["resets_at"] = DateTime.UtcNow.AddHours(1).ToString("o");
-        result.Add(l2);
-
-        var l3 = new Dictionary<string, object>();
-        l3["kind"] = "daily_requests";
-        l3["name"] = "Daily Request Quota (RPD)";
-        l3["percent"] = 35.0;
-        l3["resets_at"] = DateTime.UtcNow.Date.AddDays(1).ToString("o");
-        result.Add(l3);
+        catch { }
 
         return result;
     }
 
     void RefreshUsage()
     {
-        lblFetched.Text = "Loading usage...";
+        lblFetched.Text = "Loading usage from AGY API...";
         ThreadPool.QueueUserWorkItem(delegate
         {
             try
@@ -419,20 +537,26 @@ public class GeminiCapperForm : Form
                 {
                     limits = newLimits;
                     int i = 0;
-                    foreach (object o in limits)
+                    if (limits != null && limits.Count > 0)
                     {
-                        if (i >= 4) break;
-                        var limit = (Dictionary<string, object>)o;
-                        string name = limit.ContainsKey("name") ? (string)limit["name"] : (string)limit["kind"];
-                        double pct = Convert.ToDouble(limit["percent"], CultureInfo.InvariantCulture);
-                        rowName[i].Text = name;
-                        rowBar[i].Value = (int)Math.Min(100, Math.Max(0, pct));
-                        rowPct[i].Text = pct.ToString("0.#", CultureInfo.InvariantCulture) + "%";
-                        rowName[i].Visible = rowBar[i].Visible = rowPct[i].Visible = true;
-                        i++;
+                        foreach (object o in limits)
+                        {
+                            if (i >= 5) break;
+                            var limit = (Dictionary<string, object>)o;
+                            string name = limit["name"].ToString();
+                            double usedPct = Convert.ToDouble(limit["percent"], CultureInfo.InvariantCulture);
+                            double remPct = Convert.ToDouble(limit["remainingPercent"], CultureInfo.InvariantCulture);
+                            string resetIn = limit.ContainsKey("resetIn") ? limit["resetIn"].ToString() : "";
+
+                            rowName[i].Text = name;
+                            rowBar[i].Value = (int)Math.Min(100, Math.Max(0, usedPct));
+                            rowPct[i].Text = string.Format("{0}% used ({1})", usedPct.ToString("0.#", CultureInfo.InvariantCulture), resetIn);
+                            rowName[i].Visible = rowBar[i].Visible = rowPct[i].Visible = true;
+                            i++;
+                        }
                     }
-                    for (; i < 4; i++) rowName[i].Visible = rowBar[i].Visible = rowPct[i].Visible = false;
-                    lblFetched.Text = "Updated " + DateTime.Now.ToString("HH:mm:ss");
+                    for (; i < 5; i++) rowName[i].Visible = rowBar[i].Visible = rowPct[i].Visible = false;
+                    lblFetched.Text = "Updated " + DateTime.Now.ToString("HH:mm:ss") + " (/usage synchronized)";
                     UpdateAllowedToday();
                 });
             }
