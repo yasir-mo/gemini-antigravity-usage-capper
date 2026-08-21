@@ -75,9 +75,9 @@ public class GeminiCapperForm : Form
     NumericUpDown numThreshold;
     NumericUpDown numPointsPerDay;
     CheckBox chkPacing;
-    Label[] rowName = new Label[5];
-    ProgressBar[] rowBar = new ProgressBar[5];
-    Label[] rowPct = new Label[5];
+    Label[] rowName = new Label[2];
+    ProgressBar[] rowBar = new ProgressBar[2];
+    Label[] rowPct = new Label[2];
     System.Windows.Forms.Timer timer;
     NotifyIcon notifyIcon;
     ContextMenuStrip trayMenu;
@@ -128,7 +128,7 @@ public class GeminiCapperForm : Form
         ShowInTaskbar = true;
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
-        ClientSize = new Size(480, 520);
+        ClientSize = new Size(480, 422);
         Font = new Font("Segoe UI", 9f);
 
         IntPtr forceHandle = this.Handle;
@@ -183,40 +183,40 @@ public class GeminiCapperForm : Form
         // ---- usage ----
         GroupBox grpUsage = new GroupBox();
         grpUsage.Text = "Live Model Quotas & Usage (/usage)";
-        grpUsage.SetBounds(12, 126, 456, 205);
+        grpUsage.SetBounds(12, 126, 456, 112);
         Controls.Add(grpUsage);
 
-        for (int i = 0; i < 5; i++)
+        for (int i = 0; i < 2; i++)
         {
-            int y = 22 + i * 32;
+            int y = 24 + i * 28;
             rowName[i] = new Label();
-            rowName[i].SetBounds(12, y, 220, 16);
+            rowName[i].SetBounds(16, y, 160, 18);
             rowName[i].Visible = false;
             grpUsage.Controls.Add(rowName[i]);
             rowBar[i] = new ProgressBar();
-            rowBar[i].SetBounds(236, y, 110, 16);
+            rowBar[i].SetBounds(180, y, 130, 18);
             rowBar[i].Minimum = 0;
             rowBar[i].Maximum = 100;
             rowBar[i].Visible = false;
             grpUsage.Controls.Add(rowBar[i]);
             rowPct[i] = new Label();
-            rowPct[i].SetBounds(350, y, 100, 16);
+            rowPct[i].SetBounds(318, y, 126, 18);
             rowPct[i].Visible = false;
             grpUsage.Controls.Add(rowPct[i]);
         }
 
-        Button btnRefresh = MakeButton(grpUsage, "Refresh", 368, 175, 74);
+        Button btnRefresh = MakeButton(grpUsage, "Refresh", 368, 80, 76);
         btnRefresh.Height = 24;
 
         lblFetched = new Label();
-        lblFetched.SetBounds(12, 179, 350, 16);
+        lblFetched.SetBounds(16, 84, 345, 16);
         lblFetched.ForeColor = Color.DimGray;
         grpUsage.Controls.Add(lblFetched);
 
         // ---- settings ----
         GroupBox grpSettings = new GroupBox();
         grpSettings.Text = "Settings (saved immediately)";
-        grpSettings.SetBounds(12, 338, 456, 138);
+        grpSettings.SetBounds(12, 246, 456, 138);
         Controls.Add(grpSettings);
 
         Label lblThreshold = new Label();
@@ -254,7 +254,7 @@ public class GeminiCapperForm : Form
         grpSettings.Controls.Add(lblAllowedToday);
 
         Label lblFooter = new Label();
-        lblFooter.SetBounds(12, 486, 456, 18);
+        lblFooter.SetBounds(12, 394, 456, 18);
         lblFooter.Text = "Minimizing or closing hides to tray. Right-click tray icon to Exit.";
         lblFooter.ForeColor = Color.DimGray;
         Controls.Add(lblFooter);
@@ -444,85 +444,82 @@ public class GeminiCapperForm : Form
                 if (catalog.ContainsKey("models") && catalog["models"] is Dictionary<string, object>)
                 {
                     var modelsMap = (Dictionary<string, object>)catalog["models"];
-                    var orderedIds = new List<string>();
+                    Dictionary<string, object> geminiQuota = null;
+                    Dictionary<string, object> claudeQuota = null;
 
-                    if (catalog.ContainsKey("agentModelSorts") && catalog["agentModelSorts"] is ArrayList)
+                    foreach (KeyValuePair<string, object> kvp in modelsMap)
                     {
-                        var sorts = (ArrayList)catalog["agentModelSorts"];
-                        if (sorts.Count > 0 && sorts[0] is Dictionary<string, object>)
+                        string id = kvp.Key.ToLowerInvariant();
+                        if (kvp.Value is Dictionary<string, object>)
                         {
-                            var sortObj = (Dictionary<string, object>)sorts[0];
-                            if (sortObj.ContainsKey("groups") && sortObj["groups"] is ArrayList)
+                            var m = (Dictionary<string, object>)kvp.Value;
+                            if (m.ContainsKey("quotaInfo") && m["quotaInfo"] is Dictionary<string, object>)
                             {
-                                var groups = (ArrayList)sortObj["groups"];
-                                if (groups.Count > 0 && groups[0] is Dictionary<string, object>)
+                                var qi = (Dictionary<string, object>)m["quotaInfo"];
+                                if (qi.ContainsKey("remainingFraction"))
                                 {
-                                    var grp = (Dictionary<string, object>)groups[0];
-                                    if (grp.ContainsKey("modelIds") && grp["modelIds"] is ArrayList)
+                                    if (id.Contains("gemini") && geminiQuota == null)
                                     {
-                                        foreach (object id in (ArrayList)grp["modelIds"])
-                                        {
-                                            orderedIds.Add(id.ToString());
-                                        }
+                                        geminiQuota = qi;
+                                    }
+                                    else if (id.Contains("claude") && claudeQuota == null)
+                                    {
+                                        claudeQuota = qi;
                                     }
                                 }
                             }
                         }
                     }
 
-                    if (orderedIds.Count == 0)
-                    {
-                        foreach (string k in modelsMap.Keys) orderedIds.Add(k);
-                    }
+                    // 1. Gemini indicator (all Gemini models share usage)
+                    result.Add(CreateQuotaEntry("Gemini", geminiQuota));
 
-                    foreach (string id in orderedIds)
-                    {
-                        if (!modelsMap.ContainsKey(id)) continue;
-                        var m = (Dictionary<string, object>)modelsMap[id];
-                        string name = m.ContainsKey("displayName") ? m["displayName"].ToString() : id;
-                        double remainingPct = 100.0;
-                        string resetIn = "100% rem";
-
-                        if (m.ContainsKey("quotaInfo") && m["quotaInfo"] is Dictionary<string, object>)
-                        {
-                            var qi = (Dictionary<string, object>)m["quotaInfo"];
-                            if (qi.ContainsKey("remainingFraction"))
-                            {
-                                remainingPct = Convert.ToDouble(qi["remainingFraction"], CultureInfo.InvariantCulture) * 100.0;
-                            }
-                            if (qi.ContainsKey("resetTime"))
-                            {
-                                DateTime resetDt;
-                                if (DateTime.TryParse(qi["resetTime"].ToString(), out resetDt))
-                                {
-                                    TimeSpan diff = resetDt.ToUniversalTime() - DateTime.UtcNow;
-                                    if (diff.TotalSeconds > 0)
-                                    {
-                                        if (diff.TotalHours >= 1)
-                                            resetIn = string.Format("{0}h {1}m", (int)diff.TotalHours, diff.Minutes);
-                                        else
-                                            resetIn = string.Format("{0}m", diff.Minutes);
-                                    }
-                                }
-                            }
-                        }
-
-                        double usedPct = Math.Round(Math.Max(0, Math.Min(100, 100.0 - remainingPct)), 1);
-
-                        var entry = new Dictionary<string, object>();
-                        entry["id"] = id;
-                        entry["name"] = name;
-                        entry["percent"] = usedPct;
-                        entry["remainingPercent"] = Math.Round(remainingPct, 1);
-                        entry["resetIn"] = resetIn;
-                        result.Add(entry);
-                    }
+                    // 2. Claude indicator
+                    result.Add(CreateQuotaEntry("Claude", claudeQuota));
                 }
             }
         }
         catch { }
 
         return result;
+    }
+
+    Dictionary<string, object> CreateQuotaEntry(string name, Dictionary<string, object> qi)
+    {
+        double remainingPct = 100.0;
+        string resetIn = "100% rem";
+
+        if (qi != null)
+        {
+            if (qi.ContainsKey("remainingFraction"))
+            {
+                remainingPct = Convert.ToDouble(qi["remainingFraction"], CultureInfo.InvariantCulture) * 100.0;
+            }
+            if (qi.ContainsKey("resetTime"))
+            {
+                DateTime resetDt;
+                if (DateTime.TryParse(qi["resetTime"].ToString(), out resetDt))
+                {
+                    TimeSpan diff = resetDt.ToUniversalTime() - DateTime.UtcNow;
+                    if (diff.TotalSeconds > 0)
+                    {
+                        if (diff.TotalHours >= 1)
+                            resetIn = string.Format("{0}h {1}m", (int)diff.TotalHours, diff.Minutes);
+                        else
+                            resetIn = string.Format("{0}m", diff.Minutes);
+                    }
+                }
+            }
+        }
+
+        double usedPct = Math.Round(Math.Max(0, Math.Min(100, 100.0 - remainingPct)), 1);
+
+        var entry = new Dictionary<string, object>();
+        entry["name"] = name;
+        entry["percent"] = usedPct;
+        entry["remainingPercent"] = Math.Round(remainingPct, 1);
+        entry["resetIn"] = resetIn;
+        return entry;
     }
 
     void RefreshUsage()
@@ -541,7 +538,7 @@ public class GeminiCapperForm : Form
                     {
                         foreach (object o in limits)
                         {
-                            if (i >= 5) break;
+                            if (i >= 2) break;
                             var limit = (Dictionary<string, object>)o;
                             string name = limit["name"].ToString();
                             double usedPct = Convert.ToDouble(limit["percent"], CultureInfo.InvariantCulture);
@@ -555,7 +552,7 @@ public class GeminiCapperForm : Form
                             i++;
                         }
                     }
-                    for (; i < 5; i++) rowName[i].Visible = rowBar[i].Visible = rowPct[i].Visible = false;
+                    for (; i < 2; i++) rowName[i].Visible = rowBar[i].Visible = rowPct[i].Visible = false;
                     lblFetched.Text = "Updated " + DateTime.Now.ToString("HH:mm:ss") + " (/usage synchronized)";
                     UpdateAllowedToday();
                 });

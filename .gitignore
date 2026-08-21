@@ -1,5 +1,7 @@
-﻿gui-error.log
+gui-error.log
 *.cache.json
 config.json
 GeminiCapper.exe
 GeminiCapper-*.zip
+GEMINI.md
+
