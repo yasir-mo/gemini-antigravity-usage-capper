@@ -112,18 +112,31 @@ public class CapperCredReader {
         }
     }
 
-    # Evaluate models and check if any exceed threshold
+    # Evaluate shared quotas (Gemini & Claude) and check if any exceed threshold
     if ($quotaData -and $quotaData.models) {
+        $geminiUsed = $null
+        $claudeUsed = $null
         foreach ($prop in $quotaData.models.psobject.Properties) {
+            $id = $prop.Name.ToLower()
             $model = $prop.Value
-            $name = if ($model.displayName) { $model.displayName } else { $prop.Name }
             if ($model.quotaInfo -and $null -ne $model.quotaInfo.remainingFraction) {
                 $usedPct = [math]::Round((1.0 - [double]$model.quotaInfo.remainingFraction) * 100, 1)
-                if ($usedPct -ge $threshold) {
-                    [Console]::Error.WriteLine("BLOCKED by GeminiCapper: $name usage is at $usedPct% (threshold $threshold%). Open GeminiCapper app to pause.")
-                    exit 2
+                if ($id -like '*gemini*' -and $null -eq $geminiUsed) {
+                    $geminiUsed = $usedPct
+                }
+                if ($id -like '*claude*' -and $null -eq $claudeUsed) {
+                    $claudeUsed = $usedPct
                 }
             }
+        }
+
+        if ($null -ne $geminiUsed -and $geminiUsed -ge $threshold) {
+            [Console]::Error.WriteLine("BLOCKED by GeminiCapper: Gemini usage is at $geminiUsed% (threshold $threshold%). Open GeminiCapper app to pause.")
+            exit 2
+        }
+        if ($null -ne $claudeUsed -and $claudeUsed -ge $threshold) {
+            [Console]::Error.WriteLine("BLOCKED by GeminiCapper: Claude usage is at $claudeUsed% (threshold $threshold%). Open GeminiCapper app to pause.")
+            exit 2
         }
     }
     exit 0
